@@ -1,0 +1,14 @@
+{
+  "canisters": {
+    "health_tracker": {
+      "type": "motoko",
+      "main": "src/main.mo"
+    }
+  },
+  "defaults": {
+    "build": {
+      "packtool": "mops sources"
+    }
+  },
+  "output_env_file": ".env"
+}
