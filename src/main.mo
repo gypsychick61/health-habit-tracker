@@ -25,6 +25,7 @@ import SrvTypes "mo:mcp-motoko-sdk/server/Types";
 import Cleanup "mo:mcp-motoko-sdk/mcp/Cleanup";
 import State "mo:mcp-motoko-sdk/mcp/State";
 import HttpAssets "mo:mcp-motoko-sdk/mcp/HttpAssets";
+import Beacon "mo:mcp-motoko-sdk/mcp/Beacon";
 
 shared ({ caller = deployer }) persistent actor class McpServer() = self {
 
@@ -59,6 +60,13 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
 
   Cleanup.startCleanupTimer<system>(appContext);
   AuthCleanup.startCleanupTimer<system>(authContext);
+
+  // Prometheus usage beacon — reports anonymized usage to the tracker canister.
+  transient let beaconContext : Beacon.BeaconContext = Beacon.init(
+    Principal.fromText("m63pw-fqaaa-aaaai-q33pa-cai"),
+    ?(15 * 60),
+  );
+  Beacon.startTimer<system>(beaconContext);
 
   // --- HELPERS ---
 
@@ -540,7 +548,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
       ("get_summary", getSummaryTool),
       ("delete_entry", deleteEntryTool),
     ];
-    beacon = null;
+    beacon = ?beaconContext;
   };
 
   transient let mcpServer = Mcp.createServer(mcpConfig);
