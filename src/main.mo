@@ -571,11 +571,13 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
       case (?mcpResponse) { mcpResponse };
       case (null) {
         if (req.url == "/") {
+          // Query responses need certification on the non-raw gateway; punt to an
+          // update call, which is exempt.
           {
-            status_code = 200;
-            headers = [("Content-Type", "text/html")];
-            body = Text.encodeUtf8("<h1>Health & Habit Tracker MCP Server</h1><p>MCP endpoint at <code>/mcp</code>. Authenticate with an <code>x-api-key</code> header.</p>");
-            upgrade = null;
+            status_code = 204;
+            headers = [];
+            body = Blob.fromArray([]);
+            upgrade = ?true;
             streaming_strategy = null;
           };
         } else {
@@ -596,12 +598,22 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     switch (await HttpHandler.http_request_update(ctx, req)) {
       case (?res) { res };
       case (null) {
-        {
-          status_code = 404;
-          headers = [];
-          body = Blob.fromArray([]);
-          upgrade = null;
-          streaming_strategy = null;
+        if (req.url == "/") {
+          {
+            status_code = 200;
+            headers = [("Content-Type", "text/html")];
+            body = Text.encodeUtf8("<h1>Health & Habit Tracker MCP Server</h1><p>MCP endpoint at <code>/mcp</code>. Authenticate with an <code>x-api-key</code> header.</p>");
+            upgrade = null;
+            streaming_strategy = null;
+          };
+        } else {
+          {
+            status_code = 404;
+            headers = [];
+            body = Blob.fromArray([]);
+            upgrade = null;
+            streaming_strategy = null;
+          };
         };
       };
     };
