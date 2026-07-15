@@ -1,5 +1,5 @@
 import Map "mo:map/Map";
-import { thash; phash } "mo:map/Map";
+import { thash; phash; nhash } "mo:map/Map";
 import Result "mo:base/Result";
 import Blob "mo:base/Blob";
 import Principal "mo:base/Principal";
@@ -31,7 +31,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
 
   // --- HEALTH LOG DATA MODEL ---
 
-  type EntryKind = { #workout; #sleep; #medication; #habit };
+  type EntryKind = { #workout; #sleep; #medication; #habit; #meal };
 
   type Entry = {
     id : Nat;
@@ -46,8 +46,13 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
 
   let nanosPerDay : Int = 86_400_000_000_000;
 
+  // Structured macros for #meal entries, keyed by entry id. Kept out of Entry
+  // so the stable Entry type stays upgrade-compatible with v0.1 data.
+  type MealMacros = { calories : ?Float; proteinGrams : ?Float };
+
   var nextEntryId : Nat = 1;
   let userEntries : Map.Map<Principal, Vector.Vector<Entry>> = Map.new();
+  let mealMacros : Map.Map<Nat, MealMacros> = Map.new();
 
   // --- MCP SERVER PLUMBING ---
 
@@ -78,6 +83,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
       case (#sleep) "sleep";
       case (#medication) "medication";
       case (#habit) "habit";
+      case (#meal) "meal";
     };
   };
 
@@ -87,6 +93,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
       case ("sleep") ?#sleep;
       case ("medication") ?#medication;
       case ("habit") ?#habit;
+      case ("meal") ?#meal;
       case (_) null;
     };
   };
@@ -142,8 +149,12 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     switch (t) { case (?v) Json.str(v); case (null) Json.nullable() };
   };
 
+  func optJsonFloat(f : ?Float) : Json.Json {
+    switch (f) { case (?v) Json.float(v); case (null) Json.nullable() };
+  };
+
   func entryToJson(e : Entry) : Json.Json {
-    Json.obj([
+    let base = [
       ("id", Json.int(e.id)),
       ("kind", Json.str(kindToText(e.kind))),
       ("name", Json.str(e.name)),
@@ -152,7 +163,16 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
       ("notes", optJsonText(e.notes)),
       ("days_ago", Json.int(today() - e.day)),
       ("created_at_ns", Json.int(e.createdAt)),
-    ]);
+    ];
+    switch (e.kind, Map.get(mealMacros, nhash, e.id)) {
+      case (#meal, ?m) {
+        Json.obj(Array.append(base, [
+          ("calories", optJsonFloat(m.calories)),
+          ("protein_grams", optJsonFloat(m.proteinGrams)),
+        ]));
+      };
+      case (_, _) Json.obj(base);
+    };
   };
 
   func addEntry(p : Principal, kind : EntryKind, name : Text, amount : Float, detail : ?Text, notes : ?Text) : Entry {
@@ -262,13 +282,29 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
       outputSchema = ?loggedEntrySchema;
     },
     {
-      name = "list_entries";
-      title = ?"List Entries";
-      description = ?"List your recent entries, newest first. Optionally filter by kind (workout/sleep/medication/habit) and window in days.";
+      name = "log_meal";
+      title = ?"Log Meal";
+      description = ?"Record a meal: what you ate, with optional calories, protein grams, and notes.";
       payment = null;
       inputSchema = objSchema(
         [
-          schemaProp("kind", "string", "Optional filter: workout, sleep, medication, or habit."),
+          schemaProp("meal", "string", "What you ate, e.g. 'chicken and rice' or 'breakfast: eggs and toast'."),
+          schemaProp("calories", "number", "Optional estimated calories."),
+          schemaProp("protein_grams", "number", "Optional grams of protein."),
+          schemaProp("notes", "string", "Optional free-form notes."),
+        ],
+        ["meal"],
+      );
+      outputSchema = ?loggedEntrySchema;
+    },
+    {
+      name = "list_entries";
+      title = ?"List Entries";
+      description = ?"List your recent entries, newest first. Optionally filter by kind (workout/sleep/medication/habit/meal) and window in days.";
+      payment = null;
+      inputSchema = objSchema(
+        [
+          schemaProp("kind", "string", "Optional filter: workout, sleep, medication, habit, or meal."),
           schemaProp("days", "number", "Optional: only entries from the last N days (default 7)."),
           schemaProp("limit", "number", "Optional: max entries to return (default 50)."),
         ],
@@ -285,7 +321,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     {
       name = "get_summary";
       title = ?"Get Summary & Trends";
-      description = ?"Summarize the last N days (default 7): workout totals, average sleep, medication adherence, habit streaks, and nudges.";
+      description = ?"Summarize the last N days (default 7): workout totals, average sleep, meal calories/protein, medication adherence, habit streaks, and nudges.";
       payment = null;
       inputSchema = objSchema(
         [schemaProp("days", "number", "Window in days (default 7).")],
@@ -373,13 +409,36 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     cb(#ok(okResult(loggedResponse(e, "Checked in '" # habit # "'. Streak: " # Nat.toText(streak) # " days."))));
   };
 
+  func logMealTool(args : McpTypes.JsonValue, auth : ?AuthTypes.AuthInfo, cb : ToolCb) : async () {
+    let ?p = requireAuth(auth, cb) else return;
+    let ?meal = optText(args, "meal") else return cb(#ok(errorResult("Missing 'meal'.")));
+    let calories = optFloat(args, "calories");
+    switch (calories) {
+      case (?c) { if (c < 0.0 or c > 20_000.0) return cb(#ok(errorResult("'calories' must be between 0 and 20000."))) };
+      case (null) {};
+    };
+    let protein = optFloat(args, "protein_grams");
+    switch (protein) {
+      case (?g) { if (g < 0.0 or g > 1_000.0) return cb(#ok(errorResult("'protein_grams' must be between 0 and 1000."))) };
+      case (null) {};
+    };
+    // Human-readable macros go in detail; structured values live in mealMacros.
+    let parts = Buffer.Buffer<Text>(2);
+    switch (calories) { case (?c) parts.add(Float.toText(c) # " cal"); case (null) {} };
+    switch (protein) { case (?g) parts.add(Float.toText(g) # "g protein"); case (null) {} };
+    let detail : ?Text = if (parts.size() == 0) null else ?Text.join(", ", parts.vals());
+    let e = addEntry(p, #meal, meal, 1.0, detail, optText(args, "notes"));
+    Map.set(mealMacros, nhash, e.id, { calories = calories; proteinGrams = protein });
+    cb(#ok(okResult(loggedResponse(e, "Logged meal: " # meal # "."))));
+  };
+
   func listEntriesTool(args : McpTypes.JsonValue, auth : ?AuthTypes.AuthInfo, cb : ToolCb) : async () {
     let ?p = requireAuth(auth, cb) else return;
     let kindFilter : ?EntryKind = switch (optText(args, "kind")) {
       case (?k) {
         switch (kindFromText(k)) {
           case (?kk) ?kk;
-          case (null) return cb(#ok(errorResult("Unknown kind '" # k # "'. Use workout, sleep, medication, or habit.")));
+          case (null) return cb(#ok(errorResult("Unknown kind '" # k # "'. Use workout, sleep, medication, habit, or meal.")));
         };
       };
       case (null) null;
@@ -447,6 +506,12 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     var lastWorkoutDay : Int = -1;
     var sleepNights = 0;
     var sleepHours = 0.0;
+    var mealCount = 0;
+    var mealCalories = 0.0;
+    var mealProtein = 0.0;
+    var caloriesLogged = false;
+    var proteinLogged = false;
+    let mealDays = Map.new<Nat, Bool>();
     let medCounts = Map.new<Text, Nat>();
     let habitNames = Map.new<Text, Bool>();
 
@@ -465,6 +530,23 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
             Map.set(medCounts, thash, e.name, c + 1);
           };
           case (#habit) {};
+          case (#meal) {
+            mealCount += 1;
+            Map.set(mealDays, nhash, e.day, true);
+            switch (Map.get(mealMacros, nhash, e.id)) {
+              case (?m) {
+                switch (m.calories) {
+                  case (?c) { mealCalories += c; caloriesLogged := true };
+                  case (null) {};
+                };
+                switch (m.proteinGrams) {
+                  case (?g) { mealProtein += g; proteinLogged := true };
+                  case (null) {};
+                };
+              };
+              case (null) {};
+            };
+          };
         };
       };
     };
@@ -504,6 +586,13 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
         ("nights_logged", Json.int(sleepNights)),
         ("average_hours", avgSleep),
       ])),
+      ("meals", Json.obj([
+        ("count", Json.int(mealCount)),
+        ("days_logged", Json.int(Map.size(mealDays))),
+        ("total_calories", if (caloriesLogged) Json.float(mealCalories) else Json.nullable()),
+        ("avg_calories_per_logged_day", if (caloriesLogged and Map.size(mealDays) > 0) Json.float(mealCalories / Float.fromInt(Map.size(mealDays))) else Json.nullable()),
+        ("total_protein_grams", if (proteinLogged) Json.float(mealProtein) else Json.nullable()),
+      ])),
       ("medications", Json.arr(Buffer.toArray(meds))),
       ("habits", Json.arr(Buffer.toArray(habits))),
       ("nudges", Json.arr(Buffer.toArray(nudges))),
@@ -523,6 +612,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     };
     Vector.clear(v);
     for (e in kept.vals()) Vector.add(v, e);
+    Map.delete(mealMacros, nhash, id);
     cb(#ok(okResult(Json.obj([("message", Json.str("Deleted entry " # Nat.toText(id) # "."))]))));
   };
 
@@ -534,7 +624,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     serverInfo = {
       name = "health-habit-tracker";
       title = "Health & Habit Tracker";
-      version = "0.1.0";
+      version = "0.2.0";
     };
     resources = [];
     resourceReader = func(uri) { Map.get(appContext.resourceContents, thash, uri) };
@@ -544,6 +634,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
       ("log_sleep", logSleepTool),
       ("log_medication", logMedicationTool),
       ("log_habit", logHabitTool),
+      ("log_meal", logMealTool),
       ("list_entries", listEntriesTool),
       ("get_summary", getSummaryTool),
       ("delete_entry", deleteEntryTool),

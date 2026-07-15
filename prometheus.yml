@@ -1,8 +1,8 @@
 name: health-habit-tracker
 namespace: io.github.gypsychick61.health-habit-tracker
 title: Health & Habit Tracker
-version: 0.1.0
-description: Private on-chain health & habit tracker — log workouts, sleep, medications, and daily habits, and get summaries, streaks, and nudges.
+version: 0.2.0
+description: Private on-chain health & habit tracker — log workouts, sleep, meals, medications, and daily habits, and get summaries, streaks, and nudges.
 category: Health & Fitness
 mcp_path: /mcp
 repo_url: https://github.com/gypsychick61/health-habit-tracker
@@ -10,7 +10,7 @@ payment: null
 tags: [health, fitness, habits, sleep, tracking]
 submission:
   name: Health & Habit Tracker
-  description: Private on-chain health & habit tracker — log workouts, sleep, medications, and daily habits, and get summaries, streaks, and nudges.
+  description: Private on-chain health & habit tracker — log workouts, sleep, meals, medications, and daily habits, and get summaries, streaks, and nudges.
   publisher: gypsychick61
   category: Health & Fitness
   deployment_type: global
@@ -18,7 +18,7 @@ submission:
   mcp_path: /mcp
   why_this_app: Give your agent a memory for your body. Every workout, night of sleep, medication dose, and habit check-in is stored privately on-chain, keyed to your own principal — so any MCP client can log for you and coach you with real trends, streaks, and nudges instead of guesses.
   key_features:
-    - Log workouts, sleep, medications, and daily habit check-ins with one tool call each.
+    - Log workouts, sleep, meals (with optional calories and protein), medications, and daily habit check-ins with one tool call each.
     - Automatic streak tracking with one-check-in-per-day rules and gentle nudges when a streak is at risk.
     - Summaries and trends over any window - workout totals, average sleep, medication adherence.
     - Per-user private data keyed to your principal, secured with stable API keys minted on-chain.
