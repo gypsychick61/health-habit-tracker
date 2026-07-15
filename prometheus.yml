@@ -1,7 +1,7 @@
 name: health-habit-tracker
 namespace: io.github.gypsychick61.health-habit-tracker
 title: Health & Habit Tracker
-version: 0.2.0
+version: 0.2.1
 description: Private on-chain health & habit tracker — log workouts, sleep, meals, medications, and daily habits, and get summaries, streaks, and nudges.
 category: Health & Fitness
 mcp_path: /mcp

@@ -27,6 +27,9 @@ import State "mo:mcp-motoko-sdk/mcp/State";
 import HttpAssets "mo:mcp-motoko-sdk/mcp/HttpAssets";
 import Beacon "mo:mcp-motoko-sdk/mcp/Beacon";
 
+import Migration "Migration";
+
+(with migration = Migration.run)
 shared ({ caller = deployer }) persistent actor class McpServer() = self {
 
   // --- HEALTH LOG DATA MODEL ---
@@ -51,7 +54,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
   type MealMacros = { calories : ?Float; proteinGrams : ?Float };
 
   var nextEntryId : Nat = 1;
-  let userEntries : Map.Map<Principal, Vector.Vector<Entry>> = Map.new();
+  let userEntriesV2 : Map.Map<Principal, Vector.Vector<Entry>> = Map.new();
   let mealMacros : Map.Map<Nat, MealMacros> = Map.new();
 
   // --- MCP SERVER PLUMBING ---
@@ -106,11 +109,11 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
   };
 
   func entriesFor(p : Principal) : Vector.Vector<Entry> {
-    switch (Map.get(userEntries, phash, p)) {
+    switch (Map.get(userEntriesV2, phash, p)) {
       case (?v) v;
       case (null) {
         let v = Vector.new<Entry>();
-        Map.set(userEntries, phash, p, v);
+        Map.set(userEntriesV2, phash, p, v);
         v;
       };
     };
@@ -220,7 +223,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     ["message"],
   );
 
-  let tools : [McpTypes.Tool] = [
+  transient let tools : [McpTypes.Tool] = [
     {
       name = "log_workout";
       title = ?"Log Workout";
@@ -624,7 +627,7 @@ shared ({ caller = deployer }) persistent actor class McpServer() = self {
     serverInfo = {
       name = "health-habit-tracker";
       title = "Health & Habit Tracker";
-      version = "0.2.0";
+      version = "0.2.1";
     };
     resources = [];
     resourceReader = func(uri) { Map.get(appContext.resourceContents, thash, uri) };
