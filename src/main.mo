@@ -27,9 +27,6 @@ import State "mo:mcp-motoko-sdk/mcp/State";
 import HttpAssets "mo:mcp-motoko-sdk/mcp/HttpAssets";
 import Beacon "mo:mcp-motoko-sdk/mcp/Beacon";
 
-import Migration "Migration";
-
-(with migration = Migration.run)
 shared ({ caller = deployer }) persistent actor class McpServer() = self {
 
   // --- HEALTH LOG DATA MODEL ---
